@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Trade Winds: Island Rush</title>
+<style>
+:root{
+  --cream:#fff1cf; --ink:#0d1720; --gold:#ffc857; --coral:#ff6b5f;
+  --aqua:#53d3d1; --blue:#2f7fd3; --green:#6dcf72;
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07131b;color:var(--cream);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+#wrap{position:relative;width:min(100vw,940px);height:100vh;overflow:hidden;background:#0a2533}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(5,13,18,.91);z-index:8}
+.card{width:min(94%,650px);background:#f4e7c7;color:#111820;border:5px solid #101820;border-radius:20px;padding:22px;box-shadow:0 10px 0 #000}
+h1{margin:0;font-size:clamp(44px,8vw,72px);line-height:.88;letter-spacing:-3px;text-transform:uppercase}
+.tag{font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#9b3f32;margin-bottom:13px}
+p{line-height:1.42}
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.pill{border:2px solid #111820;border-radius:11px;padding:9px;background:#fff8e3;font-size:14px}
+.small{font-size:13px;opacity:.78}
+button{border:3px solid #111820;background:var(--gold);color:#111820;border-radius:12px;padding:12px 14px;font-size:18px;font-weight:900;cursor:pointer;box-shadow:0 5px 0 #111820}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #111820}
+.overlay button{width:100%}
+.hidden{display:none}
+#mobile{position:absolute;left:0;right:0;bottom:9px;display:flex;justify-content:center;align-items:end;gap:8px;z-index:5;padding:0 8px}
+#pad{display:grid;grid-template-columns:52px 52px 52px;grid-template-rows:44px 44px;gap:4px}
+#pad button{padding:4px;min-width:0;font-size:18px;background:rgba(244,231,199,.92)}
+#up{grid-column:2} #left{grid-column:1;grid-row:2} #down{grid-column:2;grid-row:2} #right{grid-column:3;grid-row:2}
+#tradeBtn{height:92px;min-width:115px;background:#ffc857}
+#hint{position:absolute;left:0;right:0;bottom:112px;text-align:center;font-size:11px;font-weight:900;opacity:.7;z-index:3;pointer-events:none}
+@media(min-width:760px){#mobile{opacity:.58}}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="game"></canvas>
+
+<div id="start" class="overlay">
+  <div class="card">
+    <div class="tag">Wintercow's Arcade • Kaiser Zhao</div>
+    <h1>Trade Winds</h1>
+    <p><b>Two islands. Two specialties. One fast boat.</b> Coconut Cove is great at producing coconuts. Textile Bay is great at making cloth. Your job is to move each island's specialty to the other side before the clock runs out.</p>
+    <div class="legend">
+      <div class="pill"><b>🥥 Coconut Cove</b><br>Dock here to load coconuts. Bring cloth back for big points.</div>
+      <div class="pill"><b>🧵 Textile Bay</b><br>Dock here to load cloth. Bring coconuts here for big points.</div>
+      <div class="pill"><b>🌩 Storms</b><br>Getting hit costs time and breaks your trade streak.</div>
+      <div class="pill"><b>✨ Trade Crates</b><br>Grab floating bonuses while crossing the sea.</div>
+    </div>
+    <p class="small">Move with WASD or arrow keys. Press Space near an island to trade. On phone, use the arrows and TRADE button.</p>
+    <button id="startBtn">SET SAIL</button>
+  </div>
+</div>
+
+<div id="end" class="overlay hidden">
+  <div class="card">
+    <div class="tag">Voyage Complete</div>
+    <h1 id="endTitle">TRADE COMPLETE</h1>
+    <p id="results"></p>
+    <p><b>What the game shows:</b> each island gets more by focusing on the good it can produce at a lower opportunity cost and then trading for the other good. The gains come from specialization and exchange, not from every island trying to make everything itself.</p>
+    <p class="small">That is the basic idea of comparative advantage. Even if one place is better at many things, trade can still help when relative opportunity costs differ.</p>
+    <button id="againBtn">SAIL AGAIN</button>
+  </div>
+</div>
+
+<div id="hint">DOCK NEAR AN ISLAND + PRESS SPACE / TRADE</div>
+<div id="mobile">
+  <div id="pad">
+    <button id="up">▲</button>
+    <button id="left">◀</button>
+    <button id="down">▼</button>
+    <button id="right">▶</button>
+  </div>
+  <button id="tradeBtn">TRADE</button>
+</div>
+</div>
+
+<script>
+(() => {
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),wrap=document.getElementById('wrap');
+const start=document.getElementById('start'),end=document.getElementById('end');
+const results=document.getElementById('results'),endTitle=document.getElementById('endTitle');
+
+let W=0,H=0,dpr=1;
+function resize(){
+  const r=wrap.getBoundingClientRect();W=r.width;H=r.height;dpr=Math.min(devicePixelRatio||1,2);
+  canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize',resize);resize();
+
+const keys={up:false,down:false,left:false,right:false};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rand=(a,b)=>a+Math.random()*(b-a);
+
+let running=false,last=0,timeLeft=80,score=0,trades=0,combo=0,bestCombo=0,bonus=0;
+let boat,storms=[],crates=[],particles=[],wake=[],flash=0,crateTimer=0,stormTimer=0;
+let cargo={type:null,amount:0};
+let lastIsland=null;
+
+const islands=[
+  {name:'COCONUT COVE',x:0.16,y:0.43,r:84,good:'coconut',icon:'🥥',accent:'#7ad06d'},
+  {name:'TEXTILE BAY',x:0.84,y:0.43,r:84,good:'cloth',icon:'🧵',accent:'#e88c6f'}
+];
+
+function islandPos(i){return {x:islands[i].x*W,y:islands[i].y*H}}
+function reset(){
+  timeLeft=80;score=0;trades=0;combo=0;bestCombo=0;bonus=0;
+  boat={x:W*.5,y:H*.68,vx:0,vy:0,a:0,stun:0};
+  storms=[];crates=[];particles=[];wake=[];flash=0;crateTimer=3;stormTimer=2;
+  cargo={type:null,amount:0};lastIsland=null;
+}
+function begin(){
+  reset();running=true;last=performance.now();start.classList.add('hidden');end.classList.add('hidden');requestAnimationFrame(loop);
+}
+document.getElementById('startBtn').onclick=begin;
+document.getElementById('againBtn').onclick=begin;
+
+function bindHold(id,key){
+  const el=document.getElementById(id);
+  const down=e=>{e.preventDefault();keys[key]=true},up=e=>{e.preventDefault();keys[key]=false};
+  el.addEventListener('pointerdown',down);el.addEventListener('pointerup',up);el.addEventListener('pointerleave',up);el.addEventListener('pointercancel',up);
+}
+bindHold('up','up');bindHold('down','down');bindHold('left','left');bindHold('right','right');
+document.getElementById('tradeBtn').addEventListener('pointerdown',e=>{e.preventDefault();trade()});
+
+addEventListener('keydown',e=>{
+  if(['ArrowUp','w','W'].includes(e.key))keys.up=true;
+  if(['ArrowDown','s','S'].includes(e.key))keys.down=true;
+  if(['ArrowLeft','a','A'].includes(e.key))keys.left=true;
+  if(['ArrowRight','d','D'].includes(e.key))keys.right=true;
+  if(e.key===' '&&!e.repeat){e.preventDefault();trade()}
+});
+addEventListener('keyup',e=>{
+  if(['ArrowUp','w','W'].includes(e.key))keys.up=false;
+  if(['ArrowDown','s','S'].includes(e.key))keys.down=false;
+  if(['ArrowLeft','a','A'].includes(e.key))keys.left=false;
+  if(['ArrowRight','d','D'].includes(e.key))keys.right=false;
+});
+
+function pop(x,y,text,color='#fff1cf'){
+  particles.push({x,y,text,color,life:1,vy:-42});
+}
+function nearIsland(i){
+  const p=islandPos(i),d=Math.hypot(boat.x-p.x,boat.y-p.y);
+  return d<islands[i].r+54;
+}
+function trade(){
+  if(!running||boat.stun>0)return;
+  let idx=-1;
+  if(nearIsland(0))idx=0; if(nearIsland(1))idx=1;
+  if(idx<0){pop(boat.x,boat.y-35,'GET CLOSER TO A DOCK','#ffd98d');return}
+  const isl=islands[idx];
+  let gain=0;
+
+  if(cargo.type && cargo.type!==isl.good){
+    gain=55+combo*8+Math.floor(timeLeft/20)*3;
+    score+=gain;trades++;combo++;bestCombo=Math.max(bestCombo,combo);
+    pop(boat.x,boat.y-45,'TRADE +'+gain,'#72e49a');
+    cargo={type:null,amount:0};
+    flash=.3;
+  }
+
+  if(!cargo.type){
+    cargo={type:isl.good,amount:3};
+    pop(boat.x,boat.y-28,'LOADED '+(isl.good==='coconut'?'COCONUTS':'CLOTH'),'#ffe08a');
+  } else if(cargo.type===isl.good && lastIsland===idx){
+    pop(boat.x,boat.y-28,'TAKE IT TO THE OTHER ISLAND','#ffad8f');
+  }
+
+  lastIsland=idx;
+}
+
+function spawnStorm(){
+  storms.push({
+    x:rand(W*.28,W*.72),y:rand(H*.26,H*.73),
+    r:rand(32,50),vx:rand(-28,28),vy:rand(-15,15),phase:rand(0,6.28)
+  });
+}
+function spawnCrate(){
+  crates.push({x:rand(W*.3,W*.7),y:rand(H*.33,H*.74),r:18,life:13,phase:rand(0,6.28)});
+}
+function update(dt){
+  timeLeft-=dt;if(timeLeft<=0){timeLeft=0;finish();return}
+  flash=Math.max(0,flash-dt);
+
+  if(boat.stun>0){boat.stun-=dt;boat.vx*=.92;boat.vy*=.92}
+  else{
+    const ax=(keys.right?1:0)-(keys.left?1:0),ay=(keys.down?1:0)-(keys.up?1:0);
+    const mag=Math.hypot(ax,ay)||1;
+    boat.vx+=ax/mag*285*dt;boat.vy+=ay/mag*285*dt;
+  }
+  boat.vx*=Math.pow(.18,dt);boat.vy*=Math.pow(.18,dt);
+  const sp=Math.hypot(boat.vx,boat.vy),max=245;
+  if(sp>max){boat.vx*=max/sp;boat.vy*=max/sp}
+  boat.x=clamp(boat.x+boat.vx*dt,26,W-26);boat.y=clamp(boat.y+boat.vy*dt,H*.2,H-120);
+  if(sp>25){boat.a=Math.atan2(boat.vy,boat.vx);wake.push({x:boat.x-Math.cos(boat.a)*22,y:boat.y-Math.sin(boat.a)*22,life:.8,r:3})}
+
+  stormTimer-=dt;if(stormTimer<=0){if(storms.length<4)spawnStorm();stormTimer=rand(5,8)}
+  crateTimer-=dt;if(crateTimer<=0){if(crates.length<3)spawnCrate();crateTimer=rand(5,8)}
+
+  for(const s of storms){
+    s.phase+=dt*2;s.x+=s.vx*dt;s.y+=s.vy*dt;
+    if(s.x<40||s.x>W-40)s.vx*=-1;if(s.y<H*.23||s.y>H-130)s.vy*=-1;
+    if(boat.stun<=0&&Math.hypot(boat.x-s.x,boat.y-s.y)<s.r+20){
+      boat.stun=1.15;timeLeft=Math.max(0,timeLeft-3);combo=0;
+      boat.vx*=-.6;boat.vy*=-.6;pop(boat.x,boat.y-30,'STORM! -3 SEC','#ff7a69');
+    }
+  }
+
+  for(let i=crates.length-1;i>=0;i--){
+    const c=crates[i];c.life-=dt;c.phase+=dt*3;
+    if(Math.hypot(boat.x-c.x,boat.y-c.y)<32){
+      score+=25;bonus++;pop(c.x,c.y,'BONUS +25','#ffe36d');crates.splice(i,1);continue;
+    }
+    if(c.life<=0)crates.splice(i,1);
+  }
+
+  for(let i=particles.length-1;i>=0;i--){let p=particles[i];p.life-=dt;p.y+=p.vy*dt;if(p.life<=0)particles.splice(i,1)}
+  for(let i=wake.length-1;i>=0;i--){let w=wake[i];w.life-=dt;w.r+=16*dt;if(w.life<=0)wake.splice(i,1)}
+}
+function rr(x,y,w,h,r,fill,stroke){
+  ctx.beginPath();ctx.roundRect(x,y,w,h,r);if(fill){ctx.fillStyle=fill;ctx.fill()}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke()}
+}
+function drawSea(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#2f99bf');g.addColorStop(.55,'#167b9c');g.addColorStop(1,'#0b4968');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(255,255,255,.13)';ctx.lineWidth=2;
+  for(let y=H*.24;y<H;y+=34){
+    ctx.beginPath();
+    for(let x=0;x<=W;x+=22){
+      const yy=y+Math.sin((x+y)*.04+performance.now()*.0014)*3;
+      if(x===0)ctx.moveTo(x,yy);else ctx.lineTo(x,yy);
+    }
+    ctx.stroke();
+  }
+  ctx.fillStyle='#ffd46e';ctx.beginPath();ctx.arc(W*.5,H*.14,34,0,Math.PI*2);ctx.fill();
+}
+function drawHUD(){
+  rr(12,12,W-24,95,14,'rgba(5,15,21,.83)','#ffe8b5');
+  const cols=[24,W*.25,W*.5,W*.73];
+  const labels=['SCORE','TRADES','STREAK','TIME'];
+  const vals=[score,trades,combo,Math.ceil(timeLeft)+'s'];
+  const colors=['#ffc857','#72e49a','#ff8e76','#77dcff'];
+  for(let i=0;i<4;i++){
+    ctx.fillStyle='#fff1cf';ctx.font='700 11px system-ui';ctx.fillText(labels[i],cols[i],38);
+    ctx.font='900 24px system-ui';ctx.fillStyle=colors[i];ctx.fillText(vals[i],cols[i],70);
+  }
+}
+function drawIsland(i){
+  const isl=islands[i],p=islandPos(i),r=isl.r;
+  ctx.fillStyle='rgba(11,51,60,.25)';ctx.beginPath();ctx.ellipse(p.x+5,p.y+13,r*1.12,r*.72,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#e7c878';ctx.beginPath();ctx.ellipse(p.x,p.y,r,r*.63,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=isl.accent;ctx.beginPath();ctx.ellipse(p.x,p.y-5,r*.72,r*.46,0,0,Math.PI*2);ctx.fill();
+  ctx.font='42px system-ui';ctx.textAlign='center';ctx.fillText(isl.icon,p.x,p.y+5);
+  rr(p.x-r*.86,p.y+r*.48,r*1.72,42,9,'rgba(8,20,25,.82)','#ffe4a8');
+  ctx.fillStyle='#fff1cf';ctx.font='900 12px system-ui';ctx.fillText(isl.name,p.x,p.y+r*.48+17);
+  ctx.font='700 10px system-ui';ctx.fillStyle='#ffe28d';
+  ctx.fillText('SPECIALTY: '+(isl.good==='coconut'?'COCONUTS':'CLOTH'),p.x,p.y+r*.48+32);
+  ctx.textAlign='start';
+}
+function drawStorm(s){
+  ctx.save();ctx.translate(s.x,s.y);ctx.globalAlpha=.9;
+  ctx.fillStyle='#566777';
+  ctx.beginPath();ctx.arc(-s.r*.35,0,s.r*.45,0,Math.PI*2);ctx.arc(0,-8,s.r*.6,0,Math.PI*2);ctx.arc(s.r*.42,2,s.r*.42,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#ffe86b';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(0,s.r*.25);ctx.lineTo(-9,s.r*.7);ctx.lineTo(8,s.r*.58);ctx.lineTo(1,s.r);ctx.stroke();
+  ctx.restore();
+}
+function drawCrate(c){
+  ctx.save();ctx.translate(c.x,c.y+Math.sin(c.phase)*4);ctx.rotate(.12*Math.sin(c.phase));
+  rr(-17,-17,34,34,5,'#b9783d','#4a2b1d');
+  ctx.fillStyle='#ffe26f';ctx.font='18px system-ui';ctx.textAlign='center';ctx.fillText('★',0,7);ctx.textAlign='start';ctx.restore();
+}
+function drawBoat(){
+  for(const w of wake){ctx.save();ctx.globalAlpha=w.life*.5;ctx.strokeStyle='#d9faff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(w.x,w.y,w.r,0,Math.PI*2);ctx.stroke();ctx.restore()}
+  ctx.save();ctx.translate(boat.x,boat.y);ctx.rotate(boat.a);
+  ctx.fillStyle=boat.stun>0?'#8c8c8c':'#e85648';ctx.beginPath();ctx.moveTo(28,0);ctx.lineTo(-20,-15);ctx.lineTo(-27,0);ctx.lineTo(-20,15);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#f8ead0';ctx.fillRect(-7,-10,17,20);
+  ctx.fillStyle='#3b2a22';ctx.fillRect(-2,-26,3,24);
+  ctx.fillStyle='#fff5da';ctx.beginPath();ctx.moveTo(0,-25);ctx.lineTo(17,-8);ctx.lineTo(0,-8);ctx.closePath();ctx.fill();
+  ctx.restore();
+}
+function drawCargo(){
+  rr(14,H-165,210,54,11,'rgba(5,15,21,.82)','#ffe4a8');
+  ctx.fillStyle='#fff1cf';ctx.font='800 11px system-ui';ctx.fillText('CARGO',28,H-142);
+  ctx.font='900 17px system-ui';ctx.fillStyle='#ffc857';
+  let t='EMPTY';
+  if(cargo.type==='coconut')t='🥥  COCONUTS ×3';
+  if(cargo.type==='cloth')t='🧵  CLOTH ×3';
+  ctx.fillText(t,28,H-119);
+}
+function drawParticles(){
+  for(const p of particles){ctx.save();ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.color;ctx.font='900 13px system-ui';ctx.textAlign='center';ctx.fillText(p.text,p.x,p.y);ctx.restore()}
+}
+function draw(){
+  drawSea();drawHUD();drawIsland(0);drawIsland(1);
+  storms.forEach(drawStorm);crates.forEach(drawCrate);drawBoat();drawCargo();drawParticles();
+  if(flash>0){ctx.save();ctx.globalAlpha=flash*.38;ctx.fillStyle='#fff6c9';ctx.fillRect(0,0,W,H);ctx.restore()}
+}
+function finish(){
+  running=false;
+  let title,msg;
+  if(trades>=9&&score>=650){title='MASTER TRADER';msg='You built a fast trade loop and kept both islands focused on what they do best.'}
+  else if(trades>=5){title='STRONG TRADE ROUTE';msg='You found the basic rhythm: specialize, cross the sea, trade, repeat.'}
+  else{title='ROOM TO TRADE';msg='You spent too much time at sea or missed chances to exchange each island’s specialty.'}
+  endTitle.textContent=title;
+  results.innerHTML=`<b>Final score:</b> ${score}<br><b>Successful trades:</b> ${trades}<br><b>Best streak:</b> ${bestCombo}<br><b>Bonus crates:</b> ${bonus}<br><br>${msg}`;
+  end.classList.remove('hidden');
+}
+function loop(t){
+  if(!running){draw();return}
+  const dt=Math.min(.033,(t-last)/1000);last=t;update(dt);draw();if(running)requestAnimationFrame(loop);
+}
+reset();draw();
+})();
+</script>
+</body>
+</html>
